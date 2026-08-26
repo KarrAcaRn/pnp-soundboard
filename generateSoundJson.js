@@ -12,25 +12,33 @@ if (!fs.existsSync(soundDir)) {
   );
 }
 
-const sounds = {};
+const found = {};
 walk.walkSync(soundDir, (dirPath, file, stats) => {
-  if (stats.isDirectory()) {
+  if (stats.isDirectory() || file.startsWith(".")) {
     return;
   }
-  const dir = path.basename(dirPath);
-  if (dir === settings.soundDirName) {
+  // Sub directories of any depth become their own category, so
+  // sounds/packs/rain/drizzle.mp3 lands in the "packs/rain" category.
+  const category = path
+    .relative(soundDir, dirPath)
+    .split(path.sep)
+    .join("/");
+  if (!category) {
     return;
   }
-  if (sounds[dir]) {
-    sounds[dir].push(file);
+  if (found[category]) {
+    found[category].push(file);
   } else {
-    sounds[dir] = [file];
+    found[category] = [file];
   }
 });
 
-Object.keys(sounds).forEach(cat => {
-  sounds[cat].sort((a, b) => a.localeCompare(b));
-});
+const sounds = {};
+Object.keys(found)
+  .sort((a, b) => a.localeCompare(b))
+  .forEach(category => {
+    sounds[category] = found[category].sort((a, b) => a.localeCompare(b));
+  });
 
 console.log(sounds);
 

@@ -300,6 +300,13 @@ function usableCat(cat) {
   return cat.replace(/[^0-9a-zA-Z]+/g, "-");
 }
 
+function catLabel(cat) {
+  return cat
+    .split("/")
+    .join(" / ")
+    .toUpperCase();
+}
+
 function getBufferFromPath(path) {
   return Promise.resolve(ensureAudio()).then(() => {
     return new Promise((resolve, reject) => {
@@ -968,7 +975,7 @@ function createCategoryTab(cat) {
       '" id="' +
       tabButtonId +
       '" data-toggle="tab">' +
-      cat.toUpperCase() +
+      catLabel(cat) +
       "</a></li>"
   );
   const tabContent = $(

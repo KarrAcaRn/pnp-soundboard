@@ -105,6 +105,17 @@ describe("test board", () => {
         "cat-3-0"
       ]);
     });
+
+    it("keeps sub directories in the path of a sub category", () => {
+      expect(makeSoundPath("packs/rain", "drizzle.mp3")).toBe(
+        "sounds/packs/rain/drizzle.mp3"
+      );
+    });
+
+    it("builds ids and labels for a sub category", () => {
+      expect(usableCat("packs/rain")).toBe("packs-rain");
+      expect(catLabel("packs/rain")).toBe("PACKS / RAIN");
+    });
   });
 
   it("displays the right buttons", () => {
