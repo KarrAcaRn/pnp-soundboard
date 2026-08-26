@@ -35,6 +35,16 @@ var effectNodes = {};
 var backgroundMasterVolume = 70;
 var effectsMasterVolume = 100;
 
+// Playback position of the current background track
+var backgroundPositionId = null;
+var backgroundDuration = 0;
+var backgroundOffset = 0; // where inside the track the current source was started
+var backgroundStartedAt = 0; // context time when the current source was started
+var backgroundElapsedAtPause = 0;
+var backgroundSeekRatio = null; // set while the user drags the progress bar
+var backgroundProgressTimer = null;
+const BACKGROUND_PROGRESS_INTERVAL = 250;
+
 // buffer loader class - Can't be written in normal class style as test would fail
 function BufferLoader(context, urlList) {
   this.context = context;
@@ -484,9 +494,174 @@ function renderBackgroundPlaylist() {
     li.appendChild(
       createRemoveButton(() => removeBackgroundItem(item.id), "Remove from background music")
     );
+    if (item.id === backgroundPositionId && backgroundDuration > 0) {
+      li.appendChild(createBackgroundProgress(item));
+    }
     list.appendChild(li);
   });
   updateBackgroundPlayIcon();
+  if (backgroundSource && !backgroundPaused) {
+    startBackgroundProgressTimer();
+  } else {
+    updateBackgroundProgress();
+  }
+}
+
+function createBackgroundProgress(item) {
+  const bar = document.createElement("div");
+  bar.className = "playlist-progress";
+  bar.id = "background-progress";
+  bar.draggable = false;
+  bar.title = "Click or drag to jump inside " + item.name;
+  bar.setAttribute("role", "slider");
+  bar.setAttribute("aria-label", "Position in " + item.name);
+  bar.setAttribute("aria-valuemin", "0");
+  const fill = document.createElement("div");
+  fill.className = "playlist-progress-fill";
+  fill.id = "background-progress-fill";
+  const time = document.createElement("span");
+  time.className = "playlist-progress-time";
+  time.id = "background-progress-time";
+  bar.appendChild(fill);
+  bar.appendChild(time);
+  bar.onmousedown = function(event) {
+    startBackgroundSeek(event, bar);
+  };
+  return bar;
+}
+
+function backgroundProgressRatio(event, bar) {
+  const rect = bar.getBoundingClientRect
+    ? bar.getBoundingClientRect()
+    : { left: 0, width: 0 };
+  const width = rect.width || bar.clientWidth || 0;
+  if (!width) {
+    return 0;
+  }
+  const offsetX = (event.clientX || 0) - rect.left;
+  return Math.min(Math.max(offsetX / width, 0), 1);
+}
+
+function startBackgroundSeek(event, bar) {
+  if (event.button) {
+    return;
+  }
+  if (event.preventDefault) {
+    event.preventDefault();
+  }
+  backgroundSeekRatio = backgroundProgressRatio(event, bar);
+  updateBackgroundProgress();
+  const onMove = moveEvent => {
+    backgroundSeekRatio = backgroundProgressRatio(moveEvent, bar);
+    updateBackgroundProgress();
+  };
+  const onUp = () => {
+    document.removeEventListener("mousemove", onMove);
+    document.removeEventListener("mouseup", onUp);
+    const ratio = backgroundSeekRatio;
+    backgroundSeekRatio = null;
+    seekBackgroundToRatio(ratio);
+  };
+  document.addEventListener("mousemove", onMove);
+  document.addEventListener("mouseup", onUp);
+}
+
+function backgroundElapsed() {
+  if (!backgroundDuration) {
+    return 0;
+  }
+  if (!backgroundSource || backgroundPaused) {
+    return Math.min(backgroundElapsedAtPause, backgroundDuration);
+  }
+  const now = context ? context.currentTime : 0;
+  const played = Math.max(0, now - backgroundStartedAt);
+  return Math.min(backgroundOffset + played, backgroundDuration);
+}
+
+function seekBackgroundToRatio(ratio) {
+  if (!isNumeric(ratio)) {
+    return;
+  }
+  return seekBackgroundTo(ratio * backgroundDuration);
+}
+
+function seekBackgroundTo(seconds) {
+  if (!backgroundDuration || !backgroundPlaylist.length) {
+    return;
+  }
+  backgroundElapsedAtPause = Math.min(
+    Math.max(seconds, 0),
+    backgroundDuration
+  );
+  if (backgroundPaused) {
+    updateBackgroundProgress();
+    return;
+  }
+  return playBackgroundIndex(backgroundIndex, backgroundElapsedAtPause);
+}
+
+function resetBackgroundPosition() {
+  backgroundPositionId = null;
+  backgroundDuration = 0;
+  backgroundOffset = 0;
+  backgroundStartedAt = 0;
+  backgroundElapsedAtPause = 0;
+  backgroundSeekRatio = null;
+  stopBackgroundProgressTimer();
+}
+
+function startBackgroundProgressTimer() {
+  updateBackgroundProgress();
+  if (backgroundProgressTimer) {
+    return;
+  }
+  backgroundProgressTimer = setInterval(
+    updateBackgroundProgress,
+    BACKGROUND_PROGRESS_INTERVAL
+  );
+}
+
+function stopBackgroundProgressTimer() {
+  if (backgroundProgressTimer) {
+    clearInterval(backgroundProgressTimer);
+    backgroundProgressTimer = null;
+  }
+}
+
+function updateBackgroundProgress() {
+  const bar = document.getElementById("background-progress");
+  if (!bar) {
+    stopBackgroundProgressTimer();
+    return;
+  }
+  const dragging = backgroundSeekRatio !== null;
+  const elapsed = dragging
+    ? backgroundSeekRatio * backgroundDuration
+    : backgroundElapsed();
+  const ratio = backgroundDuration
+    ? Math.min(Math.max(elapsed / backgroundDuration, 0), 1)
+    : 0;
+  const fill = document.getElementById("background-progress-fill");
+  if (fill) {
+    fill.style.width = (ratio * 100).toFixed(2) + "%";
+  }
+  const time = document.getElementById("background-progress-time");
+  if (time) {
+    time.textContent =
+      formatPlayTime(elapsed) + " / " + formatPlayTime(backgroundDuration);
+  }
+  bar.setAttribute("aria-valuenow", elapsed.toFixed(2));
+  bar.setAttribute("aria-valuemax", backgroundDuration.toFixed(2));
+  if (backgroundPaused && !dragging) {
+    stopBackgroundProgressTimer();
+  }
+}
+
+function formatPlayTime(seconds) {
+  const total = Math.max(0, Math.floor(seconds || 0));
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  return minutes + ":" + (rest < 10 ? "0" : "") + rest;
 }
 
 function renderEffectsPlaylist() {
@@ -627,7 +802,10 @@ function startBackgroundPlayback() {
   if (backgroundIndex < 0 || backgroundIndex >= backgroundPlaylist.length) {
     backgroundIndex = 0;
   }
-  return playBackgroundIndex(backgroundIndex);
+  const item = backgroundPlaylist[backgroundIndex];
+  const resumeAt =
+    item && item.id === backgroundPositionId ? backgroundElapsedAtPause : 0;
+  return playBackgroundIndex(backgroundIndex, resumeAt);
 }
 
 function toggleBackgroundPlayback() {
@@ -641,10 +819,12 @@ function toggleBackgroundPlayback() {
 }
 
 function pauseBackgroundPlayback() {
+  backgroundElapsedAtPause = backgroundElapsed();
   backgroundPlayToken += 1;
   backgroundPaused = true;
   backgroundLoadingId = null;
   stopBackgroundSource();
+  stopBackgroundProgressTimer();
   renderBackgroundPlaylist();
 }
 
@@ -744,7 +924,7 @@ function stopBackgroundSource() {
   backgroundItemGain = null;
 }
 
-function playBackgroundIndex(index) {
+function playBackgroundIndex(index, offsetSeconds) {
   if (!backgroundPlaylist.length) {
     pauseBackgroundPlayback();
     return;
@@ -752,10 +932,14 @@ function playBackgroundIndex(index) {
   backgroundIndex = (index + backgroundPlaylist.length) % backgroundPlaylist.length;
   const item = backgroundPlaylist[backgroundIndex];
   const token = ++backgroundPlayToken;
+  const startAt = Math.max(0, offsetSeconds || 0);
   item.loadError = false;
   backgroundLoadingId = item.id;
   backgroundPaused = false;
   stopBackgroundSource();
+  if (item.id !== backgroundPositionId || !startAt) {
+    resetBackgroundPosition();
+  }
   renderBackgroundPlaylist();
   return Promise.resolve(ensureAudio())
     .then(() => getBufferFromPath(item.path))
@@ -771,6 +955,11 @@ function playBackgroundIndex(index) {
       const source = context.createBufferSource();
       source.buffer = buffer;
       source.loop = false;
+      backgroundPositionId = item.id;
+      backgroundDuration = buffer.duration || 0;
+      backgroundOffset = Math.min(startAt, backgroundDuration);
+      backgroundStartedAt = context.currentTime;
+      backgroundElapsedAtPause = backgroundOffset;
       const gainNode = context.createGain();
       gainNode.gain.value = 1;
       source.connect(gainNode);
@@ -783,7 +972,7 @@ function playBackgroundIndex(index) {
         }
         onBackgroundTrackEnded();
       };
-      source.start(0);
+      source.start(0, backgroundOffset);
       backgroundSource = source;
       backgroundItemGain = gainNode;
       renderBackgroundPlaylist();
@@ -813,6 +1002,9 @@ function removeBackgroundItem(id) {
     return;
   }
   const wasCurrent = index === backgroundIndex && !backgroundPaused;
+  if (id === backgroundPositionId) {
+    resetBackgroundPosition();
+  }
   backgroundPlaylist.splice(index, 1);
   if (!backgroundPlaylist.length) {
     pauseBackgroundPlayback();

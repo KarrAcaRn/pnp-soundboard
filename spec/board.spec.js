@@ -164,6 +164,7 @@ describe("test board", () => {
       effectsPlaylist.splice(0, effectsPlaylist.length);
       backgroundIndex = 0;
       pauseBackgroundPlayback();
+      resetBackgroundPosition();
       stopAllEffects();
       activeBuffers = [];
       renderPlaylists();
@@ -405,6 +406,104 @@ describe("test board", () => {
           .eq(1)
           .hasClass("is-current")
       ).toBe(true);
+    });
+
+    describe("background progress", () => {
+      const addTrack = () =>
+        addToBackgroundPlaylist({
+          path: "sounds/cat-1/STh_1.mp3",
+          name: "STh_1"
+        });
+      const bar = () => document.getElementById("background-progress");
+      const fillWidth = () =>
+        document.getElementById("background-progress-fill").style.width;
+      const stubBarWidth = (element, width) => {
+        element.getBoundingClientRect = () => ({ left: 0, width: width });
+      };
+      const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+
+      it("shows a full width progress bar below the running track", async () => {
+        await addTrack();
+        const item = $("#background-playlist .playlist-item").first();
+        expect(item.children().last().attr("id")).toBe("background-progress");
+        expect(bar().getAttribute("aria-label")).toBe("Position in STh_1");
+        expect(bar().getAttribute("aria-valuemax")).toBe(
+          backgroundDuration.toFixed(2)
+        );
+        expect(fillWidth()).toBe("0.00%");
+        expect(
+          document.getElementById("background-progress-time").textContent
+        ).toBe("0:00 / 0:00");
+      });
+
+      it("shows no progress bar for queued tracks", async () => {
+        await addTrack();
+        addToBackgroundPlaylist({
+          path: "sounds/cat-1/sth 2.mp3",
+          name: "sth 2"
+        });
+        expect($("#background-playlist .playlist-progress").length).toBe(1);
+        expect(
+          $("#background-playlist .playlist-item")
+            .eq(1)
+            .find(".playlist-progress").length
+        ).toBe(0);
+      });
+
+      it("moves the fill along with the playback position", async () => {
+        await addTrack();
+        context.$processTo(backgroundStartedAt + backgroundDuration / 2);
+        updateBackgroundProgress();
+        expect(parseFloat(fillWidth())).toBeCloseTo(50, 1);
+      });
+
+      it("jumps inside the track when the bar is clicked", async () => {
+        await addTrack();
+        stubBarWidth(bar(), 200);
+        bar().onmousedown({ button: 0, clientX: 50, preventDefault: () => null });
+        document.dispatchEvent(new MouseEvent("mouseup"));
+        await flush();
+        expect(backgroundOffset).toBeCloseTo(backgroundDuration * 0.25, 5);
+        expect(backgroundPaused).toBe(false);
+        expect(parseFloat(fillWidth())).toBeCloseTo(25, 1);
+      });
+
+      it("previews the position while dragging and seeks on release", async () => {
+        await addTrack();
+        stubBarWidth(bar(), 200);
+        bar().onmousedown({ button: 0, clientX: 20, preventDefault: () => null });
+        document.dispatchEvent(new MouseEvent("mousemove", { clientX: 160 }));
+        expect(parseFloat(fillWidth())).toBeCloseTo(80, 1);
+        document.dispatchEvent(new MouseEvent("mouseup"));
+        await flush();
+        expect(backgroundOffset).toBeCloseTo(backgroundDuration * 0.8, 5);
+      });
+
+      it("keeps the position while paused and resumes from there", async () => {
+        await addTrack();
+        pauseBackgroundPlayback();
+        seekBackgroundToRatio(0.5);
+        expect(backgroundPaused).toBe(true);
+        expect(activeBuffers.length).toEqual(0);
+        expect(parseFloat(fillWidth())).toBeCloseTo(50, 1);
+        await startBackgroundPlayback();
+        expect(backgroundOffset).toBeCloseTo(backgroundDuration / 2, 5);
+        expect(activeBuffers.length).toEqual(2);
+      });
+
+      it("restarts at the beginning when another track takes over", async () => {
+        await addTrack();
+        seekBackgroundToRatio(0.5);
+        await addToBackgroundPlaylist({
+          path: "sounds/cat-1/sth 2.mp3",
+          name: "sth 2"
+        });
+        const secondId = backgroundPlaylist[1].id;
+        await jumpToBackgroundItem(secondId);
+        expect(backgroundPositionId).toBe(secondId);
+        expect(backgroundOffset).toBe(0);
+        expect(fillWidth()).toBe("0.00%");
+      });
     });
   });
 
