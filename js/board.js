@@ -393,7 +393,8 @@ function addToEffectsPlaylist(sound) {
     id: nextPlaylistId("fx"),
     path: sound.path,
     name: sound.name || soundTitleFromPath(sound.path),
-    volume: 0
+    volume: 0,
+    loop: true
   };
   effectsPlaylist.push(item);
   renderEffectsPlaylist();
@@ -420,16 +421,21 @@ function renderPlaylists() {
   renderEffectsPlaylist();
 }
 
-function createRemoveButton(onClick, title) {
+function createIconButton(glyph, title, onClick) {
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = "btn btn-xs btn-default";
   btn.title = title;
+  btn.setAttribute("aria-label", title);
   btn.onclick = onClick;
   const icon = document.createElement("i");
-  icon.className = "glyphicon glyphicon-remove";
+  icon.className = "glyphicon " + glyph;
   btn.appendChild(icon);
   return btn;
+}
+
+function createRemoveButton(onClick, title) {
+  return createIconButton("glyphicon-remove", title, onClick);
 }
 
 function renderBackgroundPlaylist() {
@@ -503,6 +509,23 @@ function renderEffectsPlaylist() {
     if (item.loadError) {
       li.classList.add("is-error");
     }
+    const playing = isEffectPlaying(item.id);
+    const playBtn = createIconButton(
+      playing ? "glyphicon-stop" : "glyphicon-play",
+      (playing ? "Stop " : "Play ") + item.name,
+      () => toggleEffectPlayback(item.id)
+    );
+    if (playing) {
+      playBtn.classList.add("active");
+    }
+    const loopBtn = createIconButton(
+      "glyphicon-repeat",
+      (item.loop ? "Endless is on for " : "Endless is off for ") + item.name,
+      () => toggleEffectLoop(item.id)
+    );
+    if (item.loop) {
+      loopBtn.classList.add("active", "btn-primary");
+    }
     const name = document.createElement("span");
     name.className = "playlist-item-name";
     name.textContent = item.name;
@@ -518,6 +541,8 @@ function renderEffectsPlaylist() {
     slider.oninput = function() {
       setEffectItemVolume(item.id, this.value);
     };
+    li.appendChild(playBtn);
+    li.appendChild(loopBtn);
     li.appendChild(name);
     li.appendChild(
       createRemoveButton(() => removeEffectItem(item.id), "Remove from effects")
@@ -572,8 +597,6 @@ function setEffectItemVolume(id, value) {
   const nodes = effectNodes[id];
   if (nodes && nodes.gain) {
     nodes.gain.gain.value = gainFromPercent(item.volume);
-  } else {
-    startEffect(item);
   }
 }
 
@@ -823,13 +846,20 @@ function startEffect(item) {
       stopEffectSource(item.id);
       const source = context.createBufferSource();
       source.buffer = buffer;
-      source.loop = true;
+      source.loop = !!item.loop;
       const gainNode = context.createGain();
       gainNode.gain.value = gainFromPercent(item.volume);
       source.connect(gainNode);
       gainNode.connect(effectsMasterGain);
       trackActiveNode(source, item.path);
       trackActiveNode(gainNode, item.path);
+      source.onended = function() {
+        if (effectNodes[item.id] && effectNodes[item.id].source !== source) {
+          return;
+        }
+        stopEffectSource(item.id);
+        renderEffectsPlaylist();
+      };
       source.start(0);
       effectNodes[item.id] = { source: source, gain: gainNode, path: item.path };
       renderEffectsPlaylist();
@@ -846,6 +876,7 @@ function stopEffectSource(id) {
   if (!nodes) {
     return;
   }
+  nodes.source.onended = null;
   try {
     nodes.source.stop(0);
   } catch (e) {
@@ -861,6 +892,36 @@ function stopEffectSource(id) {
     b => b !== nodes.source && b !== nodes.gain
   );
   delete effectNodes[id];
+}
+
+function isEffectPlaying(id) {
+  return !!effectNodes[id];
+}
+
+function toggleEffectPlayback(id) {
+  const item = effectsPlaylist.find(entry => entry.id === id);
+  if (!item) {
+    return;
+  }
+  if (isEffectPlaying(id)) {
+    stopEffectSource(id);
+    renderEffectsPlaylist();
+    return;
+  }
+  return startEffect(item);
+}
+
+function toggleEffectLoop(id) {
+  const item = effectsPlaylist.find(entry => entry.id === id);
+  if (!item) {
+    return;
+  }
+  item.loop = !item.loop;
+  const nodes = effectNodes[id];
+  if (nodes) {
+    nodes.source.loop = item.loop;
+  }
+  renderEffectsPlaylist();
 }
 
 function removeEffectItem(id) {

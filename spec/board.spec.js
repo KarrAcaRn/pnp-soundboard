@@ -260,6 +260,72 @@ describe("test board", () => {
       expect(activeBuffers.length).toEqual(2);
     });
 
+    it("toggles a single effect between play and stop", async () => {
+      await addToEffectsPlaylist({
+        path: "sounds/cat-1/STh_1.mp3",
+        name: "STh_1"
+      });
+      const id = effectsPlaylist[0].id;
+      const button = () => $(`#effects-playlist [data-id="${id}"] .btn`).first();
+      expect(isEffectPlaying(id)).toBe(true);
+      expect(button().attr("aria-label")).toBe("Stop STh_1");
+      expect(button().find("i").attr("class")).toBe("glyphicon glyphicon-stop");
+
+      await toggleEffectPlayback(id);
+      expect(isEffectPlaying(id)).toBe(false);
+      expect(activeBuffers.length).toEqual(0);
+      expect(button().attr("aria-label")).toBe("Play STh_1");
+      expect(button().find("i").attr("class")).toBe("glyphicon glyphicon-play");
+
+      await toggleEffectPlayback(id);
+      expect(isEffectPlaying(id)).toBe(true);
+      expect(activeBuffers.length).toEqual(2);
+      expect(button().attr("aria-label")).toBe("Stop STh_1");
+    });
+
+    it("toggles endless playback for a single effect", async () => {
+      await addToEffectsPlaylist({
+        path: "sounds/cat-1/STh_1.mp3",
+        name: "STh_1"
+      });
+      const id = effectsPlaylist[0].id;
+      expect(effectsPlaylist[0].loop).toBe(true);
+      expect(effectNodes[id].source.loop).toBe(true);
+
+      toggleEffectLoop(id);
+      expect(effectsPlaylist[0].loop).toBe(false);
+      expect(effectNodes[id].source.loop).toBe(false);
+
+      toggleEffectLoop(id);
+      expect(effectsPlaylist[0].loop).toBe(true);
+      expect(effectNodes[id].source.loop).toBe(true);
+    });
+
+    it("starts a restarted effect with the current endless setting", async () => {
+      await addToEffectsPlaylist({
+        path: "sounds/cat-1/STh_1.mp3",
+        name: "STh_1"
+      });
+      const id = effectsPlaylist[0].id;
+      toggleEffectLoop(id);
+      await toggleEffectPlayback(id);
+      await toggleEffectPlayback(id);
+      expect(effectNodes[id].source.loop).toBe(false);
+    });
+
+    it("marks an effect as stopped once a one-shot ends", async () => {
+      await addToEffectsPlaylist({
+        path: "sounds/cat-1/STh_1.mp3",
+        name: "STh_1"
+      });
+      const id = effectsPlaylist[0].id;
+      toggleEffectLoop(id);
+      effectNodes[id].source.onended();
+      expect(isEffectPlaying(id)).toBe(false);
+      expect(activeBuffers.length).toEqual(0);
+      expect(effectsPlaylist.length).toBe(1);
+    });
+
     it("shows the sound name in both playlists", async () => {
       await addToBackgroundPlaylist({
         path: "sounds/cat-1/STh_1.mp3",
