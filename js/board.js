@@ -398,18 +398,29 @@ function renderBackgroundPlaylist() {
   }
   backgroundPlaylist.forEach((item, index) => {
     const li = document.createElement("li");
-    li.className = "playlist-item";
+    li.className = "playlist-item playlist-item-background";
     li.dataset.id = item.id;
-    if (index === backgroundIndex && !backgroundPaused) {
+    li.draggable = true;
+    if (index === backgroundIndex) {
       li.classList.add("is-current");
     }
     if (item.id === backgroundLoadingId) {
       li.classList.add("is-loading");
     }
+    const handle = document.createElement("span");
+    handle.className = "playlist-item-handle glyphicon glyphicon-align-justify";
+    handle.setAttribute("aria-hidden", "true");
     const name = document.createElement("span");
     name.className = "playlist-item-name";
     name.textContent = item.name;
-    name.title = item.name;
+    name.title = "Double-click to play " + item.name;
+    name.ondblclick = function(event) {
+      event.preventDefault();
+      event.stopPropagation();
+      jumpToBackgroundItem(item.id);
+    };
+    bindBackgroundDrag(li, item.id);
+    li.appendChild(handle);
     li.appendChild(name);
     li.appendChild(
       createRemoveButton(() => removeBackgroundItem(item.id), "Remove from background music")
@@ -434,7 +445,7 @@ function renderEffectsPlaylist() {
   }
   effectsPlaylist.forEach(item => {
     const li = document.createElement("li");
-    li.className = "playlist-item";
+    li.className = "playlist-item playlist-item-effect";
     li.dataset.id = item.id;
     const name = document.createElement("span");
     name.className = "playlist-item-name";
@@ -446,15 +457,16 @@ function renderEffectsPlaylist() {
     slider.max = "100";
     slider.value = String(item.volume);
     slider.className = "playlist-item-volume";
-    slider.title = "Effect volume";
+    slider.setAttribute("aria-label", item.name + " volume");
+    slider.title = item.name + " volume";
     slider.oninput = function() {
       setEffectItemVolume(item.id, this.value);
     };
     li.appendChild(name);
-    li.appendChild(slider);
     li.appendChild(
       createRemoveButton(() => removeEffectItem(item.id), "Remove from effects")
     );
+    li.appendChild(slider);
     list.appendChild(li);
   });
 }
@@ -584,6 +596,63 @@ function skipBackgroundTrack() {
   const nextIndex = (backgroundIndex + 1) % backgroundPlaylist.length;
   backgroundPaused = false;
   return playBackgroundIndex(nextIndex);
+}
+
+function jumpToBackgroundItem(id) {
+  const index = backgroundPlaylist.findIndex(item => item.id === id);
+  if (index === -1) {
+    return;
+  }
+  backgroundPaused = false;
+  return playBackgroundIndex(index);
+}
+
+function reorderBackgroundPlaylist(fromId, toId) {
+  if (!fromId || !toId || fromId === toId) {
+    return;
+  }
+  const fromIndex = backgroundPlaylist.findIndex(item => item.id === fromId);
+  const toIndex = backgroundPlaylist.findIndex(item => item.id === toId);
+  if (fromIndex === -1 || toIndex === -1) {
+    return;
+  }
+  const currentId =
+    backgroundPlaylist[backgroundIndex] && backgroundPlaylist[backgroundIndex].id;
+  const moved = backgroundPlaylist.splice(fromIndex, 1)[0];
+  backgroundPlaylist.splice(toIndex, 0, moved);
+  if (currentId) {
+    backgroundIndex = backgroundPlaylist.findIndex(item => item.id === currentId);
+  }
+  renderBackgroundPlaylist();
+}
+
+function bindBackgroundDrag(li, itemId) {
+  li.addEventListener("dragstart", function(event) {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", itemId);
+    li.classList.add("is-dragging");
+  });
+  li.addEventListener("dragend", function() {
+    li.classList.remove("is-dragging");
+    $(".playlist-item-background").removeClass("is-drop-target");
+  });
+  li.addEventListener("dragover", function(event) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    li.classList.add("is-drop-target");
+  });
+  li.addEventListener("dragleave", function(event) {
+    if (!li.contains(event.relatedTarget)) {
+      li.classList.remove("is-drop-target");
+    }
+  });
+  li.addEventListener("drop", function(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    li.classList.remove("is-drop-target");
+    const fromId = event.dataTransfer.getData("text/plain");
+    reorderBackgroundPlaylist(fromId, itemId);
+  });
 }
 
 function stopBackgroundSource() {

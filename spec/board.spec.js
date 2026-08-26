@@ -248,6 +248,87 @@ describe("test board", () => {
       ).toBe(true);
       expect(activeBuffers.length).toEqual(2);
     });
+
+    it("shows the sound name in both playlists", async () => {
+      await addToBackgroundPlaylist({
+        path: "sounds/cat-1/STh_1.mp3",
+        name: "STh_1"
+      });
+      await addToEffectsPlaylist({
+        path: "sounds/cat-1/sth 2.mp3",
+        name: "sth 2"
+      });
+      expect($("#background-playlist .playlist-item-name").text()).toBe("STh_1");
+      expect($("#effects-playlist .playlist-item-name").text()).toBe("sth 2");
+      expect(
+        $("#effects-playlist .playlist-item-volume").attr("aria-label")
+      ).toBe("sth 2 volume");
+    });
+
+    it("highlights the current background title", async () => {
+      await addToBackgroundPlaylist({
+        path: "sounds/cat-1/STh_1.mp3",
+        name: "STh_1"
+      });
+      addToBackgroundPlaylist({
+        path: "sounds/cat-1/sth 2.mp3",
+        name: "sth 2"
+      });
+      expect(
+        $("#background-playlist .playlist-item")
+          .first()
+          .hasClass("is-current")
+      ).toBe(true);
+      expect(
+        $("#background-playlist .playlist-item")
+          .eq(1)
+          .hasClass("is-current")
+      ).toBe(false);
+    });
+
+    it("reorders background tracks without restarting the current one", async () => {
+      await addToBackgroundPlaylist({
+        path: "sounds/cat-1/STh_1.mp3",
+        name: "STh_1"
+      });
+      addToBackgroundPlaylist({
+        path: "sounds/cat-1/sth 2.mp3",
+        name: "sth 2"
+      });
+      const currentId = backgroundPlaylist[0].id;
+      const secondId = backgroundPlaylist[1].id;
+      reorderBackgroundPlaylist(secondId, currentId);
+      expect(backgroundPlaylist.map(item => item.name)).toEqual([
+        "sth 2",
+        "STh_1"
+      ]);
+      expect(backgroundPlaylist[backgroundIndex].id).toBe(currentId);
+      expect(
+        $("#background-playlist .playlist-item")
+          .eq(1)
+          .hasClass("is-current")
+      ).toBe(true);
+    });
+
+    it("jumps to a background title on double click", async () => {
+      await addToBackgroundPlaylist({
+        path: "sounds/cat-1/STh_1.mp3",
+        name: "STh_1"
+      });
+      addToBackgroundPlaylist({
+        path: "sounds/cat-1/sth 2.mp3",
+        name: "sth 2"
+      });
+      const secondId = backgroundPlaylist[1].id;
+      await jumpToBackgroundItem(secondId);
+      expect(backgroundIndex).toBe(1);
+      expect(backgroundPlaylist[backgroundIndex].name).toBe("sth 2");
+      expect(
+        $("#background-playlist .playlist-item")
+          .eq(1)
+          .hasClass("is-current")
+      ).toBe(true);
+    });
   });
 
   describe("hotkeys", () => {
