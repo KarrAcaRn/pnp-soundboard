@@ -42,6 +42,7 @@ var backgroundOffset = 0; // where inside the track the current source was start
 var backgroundStartedAt = 0; // context time when the current source was started
 var backgroundElapsedAtPause = 0;
 var backgroundSeekRatio = null; // set while the user drags the progress bar
+var dragDisarmSelectors = [];
 var backgroundProgressTimer = null;
 const BACKGROUND_PROGRESS_INTERVAL = 250;
 
@@ -684,6 +685,10 @@ function renderEffectsPlaylist() {
     if (item.loadError) {
       li.classList.add("is-error");
     }
+    const handle = document.createElement("span");
+    handle.className = "playlist-item-handle glyphicon glyphicon-align-justify";
+    handle.title = "Drag to reorder " + item.name;
+    handle.setAttribute("aria-hidden", "true");
     const playing = isEffectPlaying(item.id);
     const playBtn = createIconButton(
       playing ? "glyphicon-stop" : "glyphicon-play",
@@ -716,6 +721,8 @@ function renderEffectsPlaylist() {
     slider.oninput = function() {
       setEffectItemVolume(item.id, this.value);
     };
+    bindEffectDrag(li, item.id, handle);
+    li.appendChild(handle);
     li.appendChild(playBtn);
     li.appendChild(loopBtn);
     li.appendChild(name);
@@ -846,26 +853,78 @@ function jumpToBackgroundItem(id) {
   return playBackgroundIndex(index);
 }
 
-function reorderBackgroundPlaylist(fromId, toId) {
+function movePlaylistItem(list, fromId, toId) {
   if (!fromId || !toId || fromId === toId) {
-    return;
+    return false;
   }
-  const fromIndex = backgroundPlaylist.findIndex(item => item.id === fromId);
-  const toIndex = backgroundPlaylist.findIndex(item => item.id === toId);
+  const fromIndex = list.findIndex(item => item.id === fromId);
+  const toIndex = list.findIndex(item => item.id === toId);
   if (fromIndex === -1 || toIndex === -1) {
-    return;
+    return false;
   }
+  list.splice(toIndex, 0, list.splice(fromIndex, 1)[0]);
+  return true;
+}
+
+function reorderBackgroundPlaylist(fromId, toId) {
   const currentId =
     backgroundPlaylist[backgroundIndex] && backgroundPlaylist[backgroundIndex].id;
-  const moved = backgroundPlaylist.splice(fromIndex, 1)[0];
-  backgroundPlaylist.splice(toIndex, 0, moved);
+  if (!movePlaylistItem(backgroundPlaylist, fromId, toId)) {
+    return;
+  }
   if (currentId) {
     backgroundIndex = backgroundPlaylist.findIndex(item => item.id === currentId);
   }
   renderBackgroundPlaylist();
 }
 
+function reorderEffectsPlaylist(fromId, toId) {
+  if (!movePlaylistItem(effectsPlaylist, fromId, toId)) {
+    return;
+  }
+  renderEffectsPlaylist();
+}
+
 function bindBackgroundDrag(li, itemId) {
+  li.draggable = true;
+  bindPlaylistDrag(li, itemId, {
+    selector: ".playlist-item-background",
+    reorder: reorderBackgroundPlaylist
+  });
+}
+
+function bindEffectDrag(li, itemId, handle) {
+  bindPlaylistDrag(li, itemId, {
+    selector: ".playlist-item-effect",
+    reorder: reorderEffectsPlaylist,
+    handle: handle
+  });
+}
+
+// Rows are rebuilt on every render, so a single listener per selector disarms
+// whatever the handle armed.
+function ensureDragDisarm(selector) {
+  if (dragDisarmSelectors.indexOf(selector) !== -1) {
+    return;
+  }
+  dragDisarmSelectors.push(selector);
+  document.addEventListener("mouseup", function() {
+    $(selector).each((_, row) => {
+      row.draggable = false;
+    });
+  });
+}
+
+// The effect rows carry sliders and buttons, so dragging them starts at the
+// handle only. Background rows can be grabbed anywhere.
+function bindPlaylistDrag(li, itemId, config) {
+  if (config.handle) {
+    li.draggable = false;
+    config.handle.addEventListener("mousedown", function() {
+      li.draggable = true;
+    });
+    ensureDragDisarm(config.selector);
+  }
   li.addEventListener("dragstart", function(event) {
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/plain", itemId);
@@ -873,7 +932,10 @@ function bindBackgroundDrag(li, itemId) {
   });
   li.addEventListener("dragend", function() {
     li.classList.remove("is-dragging");
-    $(".playlist-item-background").removeClass("is-drop-target");
+    $(config.selector).removeClass("is-drop-target");
+    if (config.handle) {
+      li.draggable = false;
+    }
   });
   li.addEventListener("dragover", function(event) {
     event.preventDefault();
@@ -890,7 +952,7 @@ function bindBackgroundDrag(li, itemId) {
     event.stopPropagation();
     li.classList.remove("is-drop-target");
     const fromId = event.dataTransfer.getData("text/plain");
-    reorderBackgroundPlaylist(fromId, itemId);
+    config.reorder(fromId, itemId);
   });
 }
 

@@ -388,6 +388,47 @@ describe("test board", () => {
       ).toBe(true);
     });
 
+    it("reorders effects without interrupting them", async () => {
+      await addToEffectsPlaylist({
+        path: "sounds/cat-1/STh_1.mp3",
+        name: "STh_1"
+      });
+      await addToEffectsPlaylist({
+        path: "sounds/cat-1/sth 2.mp3",
+        name: "sth 2"
+      });
+      const firstId = effectsPlaylist[0].id;
+      const secondId = effectsPlaylist[1].id;
+      reorderEffectsPlaylist(secondId, firstId);
+      expect(effectsPlaylist.map(item => item.name)).toEqual([
+        "sth 2",
+        "STh_1"
+      ]);
+      expect(
+        $("#effects-playlist .playlist-item-name")
+          .first()
+          .text()
+      ).toBe("sth 2");
+      expect(isEffectPlaying(firstId)).toBe(true);
+      expect(isEffectPlaying(secondId)).toBe(true);
+      expect(activeBuffers.length).toEqual(4);
+    });
+
+    it("arms an effect for dragging only through its handle", async () => {
+      await addToEffectsPlaylist({
+        path: "sounds/cat-1/STh_1.mp3",
+        name: "STh_1"
+      });
+      const row = $("#effects-playlist .playlist-item")[0];
+      expect(row.draggable).toBe(false);
+      $(row)
+        .find(".playlist-item-handle")[0]
+        .dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      expect(row.draggable).toBe(true);
+      document.dispatchEvent(new MouseEvent("mouseup"));
+      expect(row.draggable).toBe(false);
+    });
+
     it("jumps to a background title on double click", async () => {
       await addToBackgroundPlaylist({
         path: "sounds/cat-1/STh_1.mp3",

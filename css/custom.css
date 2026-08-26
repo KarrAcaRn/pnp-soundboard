@@ -113,6 +113,11 @@
   color: #888;
   font-size: 11px;
   flex-shrink: 0;
+  cursor: grab;
+}
+
+.playlist-item-handle:active {
+  cursor: grabbing;
 }
 
 .playlist-item.is-loading .playlist-item-name::after {
