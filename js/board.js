@@ -2,9 +2,6 @@ var context;
 var bufferLoader;
 var settings;
 
-// default options
-var repeat = false; // Toggled by repeat button
-
 window.onload = init;
 
 // Holds all active buffers. Is used so that we can stop them at all times
@@ -592,26 +589,6 @@ function trackActiveNode(node, path) {
   activeBuffers.push(node);
 }
 
-function untrackPath(path) {
-  activeBuffers
-    .filter(b => b.path === path)
-    .forEach(b => {
-      try {
-        if (b.stop) {
-          b.stop(0);
-        }
-      } catch (e) {
-        // already stopped
-      }
-      try {
-        b.disconnect(0);
-      } catch (err) {
-        // already disconnected
-      }
-    });
-  activeBuffers = activeBuffers.filter(b => b.path !== path);
-}
-
 function startBackgroundPlayback() {
   if (!backgroundPlaylist.length) {
     return;
@@ -912,6 +889,12 @@ function findShadowId(id) {
     : Object.keys(searchIds).find(sId => searchIds[sId] === path);
 }
 
+function getPathFromId(id) {
+  return id.startsWith("search")
+    ? searchIds[id]
+    : soundfiles[soundIds.indexOf(id)];
+}
+
 function _handleStoppedIds(id, force) {
   const rid = id + "_repeat";
   if (force) {
@@ -1053,80 +1036,6 @@ function isNumeric(input) {
   return input - 0 == input && ("" + input).trim().length > 0;
 }
 
-function toggleRepeat() {
-  repeat = !repeat;
-  const btn = $("#repeat");
-  const defaultClasses = "btn-warning";
-  const pressedClasses = "active btn-danger";
-  if (repeat) {
-    btn.removeClass(defaultClasses);
-    btn.addClass(pressedClasses);
-  } else {
-    btn.removeClass(pressedClasses);
-    btn.addClass(defaultClasses);
-  }
-}
-
-function play(buffer, gain, path) {
-  ensureAudio();
-  const source = context.createBufferSource();
-  source.buffer = buffer;
-  if (repeat) {
-    source.loop = true;
-    toggleRepeat();
-  }
-  const gainNode = context.createGain();
-  gainNode.gain.value = isNumeric(gain) && gain > 0 ? gain / 100 : 0;
-  source.connect(gainNode);
-  gainNode.connect(context.destination);
-  trackActiveNode(source, path);
-  trackActiveNode(gainNode, path);
-  source.onended = function() {
-    activeBuffers = activeBuffers.filter(b => b !== source && b !== gainNode);
-  };
-  source.start(0);
-}
-
-function stopPlaying(id) {
-  if (!id) {
-    pauseBackgroundPlayback();
-    stopAllEffects();
-    activeBuffers.slice().forEach(b => {
-      try {
-        if (b.stop) {
-          b.stop(0);
-        }
-      } catch (e) {
-        // already stopped
-      }
-      try {
-        b.disconnect(0);
-      } catch (err) {
-        // already disconnected
-      }
-    });
-    activeBuffers = [];
-    markedIds.slice(0).forEach(markedId => {
-      markSoundPlaying(markedId, true, true);
-    });
-    renderPlaylists();
-  } else {
-    stopPlayingFile(id);
-  }
-}
-
-function stopPlayingFile(id) {
-  const path = getPathFromId(id);
-  untrackPath(path);
-  markSoundPlaying(id, true, true);
-}
-
-function getPathFromId(id) {
-  return id.startsWith("search")
-    ? searchIds[id]
-    : soundfiles[soundIds.indexOf(id)];
-}
-
 function nextCat() {
   const nextIndex = cats.indexOf(currentCat) + 1;
   setCurrentCat(cats[nextIndex % cats.length]);
@@ -1140,20 +1049,6 @@ function previousCat() {
 function setCurrentCat(cat) {
   currentCat = cat;
   $("#" + usableCat(cat) + "-tab-btn").click();
-}
-
-function playRandom() {
-  const isSearch = currentCat === "search";
-  const sounds = isSearch ? searchResults : allSounds[currentCat];
-  if (!sounds || !sounds.length) {
-    return;
-  }
-  const randIndex = Math.floor(Math.random() * sounds.length);
-  const randomSound = sounds[randIndex];
-  const id = usableCat(currentCat) + "-" + randIndex;
-  $(`#${id}`).focus();
-  const path = isSearch ? randomSound : makeSoundPath(currentCat, randomSound);
-  playSound(path, id);
 }
 
 function hotButton(keyCode) {
@@ -1173,11 +1068,8 @@ function volumeChange(changeBy) {
 
 // Named key codes for easier readability
 const KEYS = {
-  SHIFT: 16,
-  CONTROL: 17,
   ALT: 18,
   ESCAPE: 27,
-  BACKSPACE: 8,
   LEFT: 37,
   UP: 38,
   RIGHT: 39,
@@ -1185,7 +1077,6 @@ const KEYS = {
 };
 
 const keyBindings = {
-  [KEYS.CONTROL]: toggleRepeat,
   [KEYS.LEFT]: previousCat,
   [KEYS.RIGHT]: nextCat,
   [KEYS.UP]: () => volumeChange(1),
@@ -1212,24 +1103,10 @@ document.onkeydown = function(e) {
     if (target.id === "search") {
       setCurrentCat(cats[cats.length - 1]);
     }
-    if ([KEYS.ESCAPE, KEYS.BACKSPACE].includes(code) && target.id !== "search") {
-      stopPlaying();
-      return;
-    }
     return;
   }
 
-  if (code === KEYS.SHIFT) {
-    playRandom();
-    return;
-  }
-
-  if ([KEYS.ESCAPE, KEYS.BACKSPACE].includes(code)) {
-    stopPlaying();
-    if (e.preventDefault) {
-      e.preventDefault();
-    }
-  } else if (keyBindings[code]) {
+  if (keyBindings[code]) {
     if (e.preventDefault && [KEYS.LEFT, KEYS.RIGHT, KEYS.UP, KEYS.DOWN].includes(code)) {
       e.preventDefault();
     }

@@ -148,7 +148,6 @@ describe("test board", () => {
 
   describe("playlists", () => {
     beforeEach(() => {
-      createEvent("Escape", 27);
       closeAddSoundModal();
       backgroundPlaylist.splice(0, backgroundPlaylist.length);
       effectsPlaylist.splice(0, effectsPlaylist.length);
@@ -218,7 +217,7 @@ describe("test board", () => {
       expect(activeBuffers.length).toEqual(2);
     });
 
-    it("stops all running playlist sounds", async () => {
+    it("stops an effect when it is removed from the playlist", async () => {
       await addToEffectsPlaylist({
         path: "sounds/cat-1/STh_1.mp3",
         name: "STh_1"
@@ -227,7 +226,8 @@ describe("test board", () => {
         path: "sounds/cat-1/sth 2.mp3",
         name: "sth 2"
       });
-      $("#stop-all-sounds").click();
+      pauseBackgroundPlayback();
+      stopAllEffects();
       expect(activeBuffers.length).toEqual(0);
     });
 
@@ -332,18 +332,17 @@ describe("test board", () => {
   });
 
   describe("hotkeys", () => {
-    it("calls stopPlaying on escape and backspace", () => {
-      spyOn(window, "stopPlaying");
+    it("does not stop playback on escape or backspace", () => {
+      spyOn(window, "pauseBackgroundPlayback");
       createEvent("Escape", 27);
-      expect(window.stopPlaying).toHaveBeenCalledTimes(1);
       createEvent("Backspace", 8);
-      expect(window.stopPlaying).toHaveBeenCalledTimes(2);
+      expect(window.pauseBackgroundPlayback).not.toHaveBeenCalled();
     });
 
-    it("calls playRandom on shift", () => {
-      spyOn(window, "playRandom");
+    it("does not add a random sound on shift", () => {
+      spyOn(window, "playSound");
       createEvent("Shift", 16);
-      expect(window.playRandom).toHaveBeenCalled();
+      expect(window.playSound).not.toHaveBeenCalled();
     });
 
     it("changes to next category on arrow right", () => {
@@ -407,13 +406,10 @@ describe("test board", () => {
       expect(document.activeElement).toBe(search);
     });
 
-    it("toggles repeat next song on control", () => {
-      const repeat = document.getElementById("repeat");
-      expect(repeat.className).toBe("btn btn-warning");
+    it("does not toggle a repeat control on control", () => {
+      expect(document.getElementById("repeat")).toBe(null);
       createEvent("Control", 17);
-      expect(repeat.className).toBe("btn active btn-danger");
-      createEvent("Control", 17);
-      expect(repeat.className).toBe("btn btn-warning");
+      expect(document.getElementById("repeat")).toBe(null);
     });
 
     describe("dynamic hotkeys", () => {

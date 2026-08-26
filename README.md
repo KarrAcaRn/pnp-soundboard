@@ -118,15 +118,9 @@ results when viewing them.
 
 Use `alt` to focus the search field.
 
-Use `shift` to play a random tile from the currently chosen tab.
-
-Use `backspace` or `escape` to stop all playing titles.
-
 Use `arrow left` or `arrow right` to go to the next or previous tab.
 
 Use `arrow up` or `arrow down` to increase or decrease the volume.
-
-Use `control` to toggle the repeat next sound button.
 
 Use the key presented on the buttons to trigger the button.
 
