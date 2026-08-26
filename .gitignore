@@ -8,4 +8,5 @@ node_modules
 # custom stuff
 sounds.json
 /sounds/*
+!/sounds/.gitkeep
 js/customizations.json
