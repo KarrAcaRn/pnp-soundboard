@@ -33,6 +33,13 @@ gotSoundJson({
 });
 
 describe("test board", () => {
+  const decodedBufferCount = () =>
+    (bufferLoader.bufferList || []).filter(Boolean).length;
+
+  it("does not decode library sounds when creating buttons", () => {
+    expect(decodedBufferCount()).toBe(0);
+  });
+
   const createEvent = (key, keyCode) => {
     document.dispatchEvent(
       new KeyboardEvent("keydown", {
@@ -41,8 +48,8 @@ describe("test board", () => {
       })
     );
   };
-  const expectBtnOuterHtml = (btn, cat, index, title, hotkey) => {
-    let html = `<button type="button" id="${cat}-${index}" class="${cat} btn btn-default spaced-button play-button" title="Plays ${title} (0s)"><strong>${title}</strong>`;
+  const expectBtnOuterHtml = (btn, cat, index, title, hotkey, path) => {
+    let html = `<button type="button" id="${cat}-${index}" class="${cat} btn btn-default spaced-button play-button" title="Add ${title} to a playlist" data-path="${path}"><strong>${title}</strong>`;
     if (hotkey >= 0) {
       html += `<span class="badge hotkey-badge ${cat}-key" style="margin-left: 1.2em;">${hotkey}</span>`;
     }
@@ -60,11 +67,17 @@ describe("test board", () => {
       expect(search("sth_1")).toEqual(["sounds/cat-1/STh_1.mp3"]);
     });
 
-    it("should show search buttons", async () => {
+    it("should show search buttons", () => {
       search("_1");
       const firstButton = $("#search-0");
-      await getBufferFromPath("sounds/cat-1/STh_1.mp3");
-      expectBtnOuterHtml(firstButton, "search", 0, "STh_1", 0);
+      expectBtnOuterHtml(
+        firstButton,
+        "search",
+        0,
+        "STh_1",
+        0,
+        "sounds/cat-1/STh_1.mp3"
+      );
     });
 
     it("should search two words", () => {
@@ -94,14 +107,31 @@ describe("test board", () => {
     });
   });
 
-  it("displays the right buttons", async () => {
-    // 0-9 and a-z just dertermine the numeric id that is clicked
-    await getBufferFromPath("sounds/cat-1/STh_1.mp3");
-    expectBtnOuterHtml($("#cat-1-0"), "cat-1", 0, "STh_1", 0);
-    await getBufferFromPath("sounds/cat 2/else-1.mp3");
-    expectBtnOuterHtml($("#cat-2-0"), "cat-2", 0, "else-1");
-    await getBufferFromPath("sounds/cat 2/else.2.mp3");
-    expectBtnOuterHtml($("#cat-2-1"), "cat-2", 1, "else.2");
+  it("displays the right buttons", () => {
+    expectBtnOuterHtml(
+      $("#cat-1-0"),
+      "cat-1",
+      0,
+      "STh_1",
+      0,
+      "sounds/cat-1/STh_1.mp3"
+    );
+    expectBtnOuterHtml(
+      $("#cat-2-0"),
+      "cat-2",
+      0,
+      "else-1",
+      0,
+      "sounds/cat 2/else-1.mp3"
+    );
+    expectBtnOuterHtml(
+      $("#cat-2-1"),
+      "cat-2",
+      1,
+      "else.2",
+      1,
+      "sounds/cat 2/else.2.mp3"
+    );
   });
 
   it("should change cats as planned", () => {
@@ -116,57 +146,103 @@ describe("test board", () => {
     expect(currentCat).toBe("cat-1");
   });
 
-  describe("playing", () => {
-    const clickSoundBtn = async id => {
-      const index = soundIds.indexOf(id);
-      $(`#${id}`).click();
-      return getBufferFromPath(`#${soundfiles[index]}`);
-    };
-
+  describe("playlists", () => {
     beforeEach(() => {
-      createEvent("Escape", 27); // Stops all playing sounds
+      createEvent("Escape", 27);
+      closeAddSoundModal();
+      backgroundPlaylist.splice(0, backgroundPlaylist.length);
+      effectsPlaylist.splice(0, effectsPlaylist.length);
+      backgroundIndex = 0;
+      pauseBackgroundPlayback();
+      stopAllEffects();
+      activeBuffers = [];
+      renderPlaylists();
       spyOn(window, "playSound").and.callThrough();
-      spyOn(window, "markSoundPlaying").and.callThrough();
     });
 
-    it("plays a sound", async () => {
-      await clickSoundBtn("cat-1-0");
+    it("opens the add-to-playlist dialog when a library sound is clicked", () => {
+      $("#cat-1-0").click();
       expect(window.playSound).toBeCalledWith(
         "sounds/cat-1/STh_1.mp3",
         "cat-1-0"
       );
-      expect(window.playSound).toHaveBeenCalledTimes(1);
-      expect(window.markSoundPlaying).toBeCalledWith("cat-1-0");
-      // Every sounds has two buffers (GainNode and AudioBufferSourceNode) which are connected.
+      expect($("#add-sound-modal").hasClass("is-open")).toBe(true);
+      expect($("#add-sound-modal-title").text()).toBe("STh_1");
+      expect(activeBuffers.length).toEqual(0);
+    });
+
+    it("adds effects at volume 0 and decodes them immediately", async () => {
+      await addToEffectsPlaylist({
+        path: "sounds/cat-1/STh_1.mp3",
+        name: "STh_1"
+      });
+      expect(effectsPlaylist.length).toBe(1);
+      expect(effectsPlaylist[0].volume).toBe(0);
+      expect(bufferLoader.bufferList[0]).toBeTruthy();
       expect(activeBuffers.length).toEqual(2);
     });
 
-    it("plays a sound multiple times", async () => {
-      await clickSoundBtn("cat-1-0");
-      await clickSoundBtn("cat-1-0");
+    it("plays multiple effects in parallel", async () => {
+      await addToEffectsPlaylist({
+        path: "sounds/cat-1/STh_1.mp3",
+        name: "STh_1"
+      });
+      await addToEffectsPlaylist({
+        path: "sounds/cat-1/sth 2.mp3",
+        name: "sth 2"
+      });
+      expect(effectsPlaylist.length).toBe(2);
       expect(activeBuffers.length).toEqual(4);
     });
 
-    it("plays multiple sounds", async () => {
-      await clickSoundBtn("cat-1-0");
-      await clickSoundBtn("cat-1-0");
-      await clickSoundBtn("cat-1-1");
-      expect(activeBuffers.length).toEqual(6);
+    it("decodes background tracks when they start playing", async () => {
+      const path = "sounds/cat 2/else-1.mp3";
+      const index = soundfiles.indexOf(path);
+      expect(bufferLoader.bufferList[index]).toBeFalsy();
+      await addToBackgroundPlaylist({ path: path, name: "else-1" });
+      expect(backgroundPlaylist.length).toBe(1);
+      expect(bufferLoader.bufferList[index]).toBeTruthy();
+      expect(activeBuffers.length).toEqual(2);
     });
 
-    it("stops all running sounds", async () => {
-      await clickSoundBtn("cat-1-0");
-      await clickSoundBtn("cat-1-0");
-      await clickSoundBtn("cat-1-1");
+    it("queues additional background tracks without starting them all", async () => {
+      await addToBackgroundPlaylist({
+        path: "sounds/cat-1/STh_1.mp3",
+        name: "STh_1"
+      });
+      addToBackgroundPlaylist({
+        path: "sounds/cat-1/sth 2.mp3",
+        name: "sth 2"
+      });
+      expect(backgroundPlaylist.length).toBe(2);
+      expect(activeBuffers.length).toEqual(2);
+    });
+
+    it("stops all running playlist sounds", async () => {
+      await addToEffectsPlaylist({
+        path: "sounds/cat-1/STh_1.mp3",
+        name: "STh_1"
+      });
+      await addToBackgroundPlaylist({
+        path: "sounds/cat-1/sth 2.mp3",
+        name: "sth 2"
+      });
       $("#stop-all-sounds").click();
       expect(activeBuffers.length).toEqual(0);
     });
 
-    it("plays and stop individual files", async () => {
-      await clickSoundBtn("cat-1-0");
-      await clickSoundBtn("cat-1-0");
-      await clickSoundBtn("cat-1-1");
-      $("#stop-cat-1-0").click();
+    it("removes an effect from the playlist and stops it", async () => {
+      await addToEffectsPlaylist({
+        path: "sounds/cat-1/STh_1.mp3",
+        name: "STh_1"
+      });
+      await addToEffectsPlaylist({
+        path: "sounds/cat-1/sth 2.mp3",
+        name: "sth 2"
+      });
+      const firstId = effectsPlaylist[0].id;
+      removeEffectItem(firstId);
+      expect(effectsPlaylist.length).toBe(1);
       expect(
         activeBuffers.every(b => b.path !== "sounds/cat-1/STh_1.mp3")
       ).toBe(true);
@@ -214,7 +290,8 @@ describe("test board", () => {
     });
 
     it("increases the volume on arrow up", () => {
-      const gain = document.getElementById("gain");
+      const gain = document.getElementById("bg-master-volume");
+      setBackgroundMasterVolume(10);
       expect(parseInt(gain.value)).toBe(10);
       createEvent("ArrowUp", 38);
       expect(parseInt(gain.value)).toBe(11);
@@ -223,11 +300,12 @@ describe("test board", () => {
       expect(parseInt(gain.value)).toBe(100);
       createEvent("ArrowUp", 38);
       expect(parseInt(gain.value)).toBe(100);
-      gain.value = 10;
+      setBackgroundMasterVolume(70);
     });
 
     it("decreases the volume on arrow down", () => {
-      const gain = document.getElementById("gain");
+      const gain = document.getElementById("bg-master-volume");
+      setBackgroundMasterVolume(10);
       expect(parseInt(gain.value)).toBe(10);
       createEvent("ArrowDown", 40);
       expect(parseInt(gain.value)).toBe(9);
@@ -236,7 +314,7 @@ describe("test board", () => {
       expect(parseInt(gain.value)).toBe(0);
       createEvent("ArrowDown", 40);
       expect(parseInt(gain.value)).toBe(0);
-      gain.value = 10;
+      setBackgroundMasterVolume(70);
     });
 
     it("focuses search on Alt", () => {

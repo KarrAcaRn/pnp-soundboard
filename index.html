@@ -2,6 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title id="soundboard-head-title"> </title>
     <script src="node_modules/jquery/dist/jquery.min.js"></script>
     <script src="js/board.js"></script>
@@ -17,95 +18,177 @@
     <link href="css/custom.css" rel="stylesheet" />
   </head>
   <body>
-    <div class="container">
-      <h1 id="soundboard-title"></h1>
-      <div id="controls">
-        <form class="form-inline">
-          <div class="form-group" id="volume-control">
-            <div class="input-group">
-              <div class="input-group-addon" title="Volume">
-                <span class="glyphicon glyphicon-volume-up"> </span>
-              </div>
+    <div class="app-layout">
+      <aside class="playlists-column">
+        <section class="playlist-panel" id="background-panel">
+          <h2>Background music</h2>
+          <p class="playlist-hint">Plays one after another. Decoded when a track starts.</p>
+          <div class="playlist-toolbar">
+            <div class="btn-group" role="group">
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                id="bg-play-pause"
+                title="Play or pause background music"
+                onclick="toggleBackgroundPlayback()"
+              >
+                <i class="glyphicon glyphicon-play" id="bg-play-icon"></i>
+              </button>
+              <button
+                type="button"
+                class="btn btn-default btn-sm"
+                id="bg-skip"
+                title="Skip to next track"
+                onclick="skipBackgroundTrack()"
+              >
+                <i class="glyphicon glyphicon-step-forward"></i>
+              </button>
+            </div>
+            <label class="playlist-volume">
+              <span class="playlist-volume-label">Volume</span>
               <input
-                type="number"
-                class="form-control"
-                title="Volume - increase [Arrow Up] - decrease [Arrow Down]"
-                id="gain"
-                name="gain"
+                type="range"
+                id="bg-master-volume"
                 min="0"
                 max="100"
-                value="10"
+                value="70"
+                title="Background music volume"
+                oninput="setBackgroundMasterVolume(this.value)"
+              />
+            </label>
+          </div>
+          <ul id="background-playlist" class="playlist-list"></ul>
+        </section>
+
+        <section class="playlist-panel" id="effects-panel">
+          <h2>Effects</h2>
+          <p class="playlist-hint">Play in parallel. Added at volume 0. Decoded when added.</p>
+          <div class="playlist-toolbar">
+            <label class="playlist-volume playlist-volume-full">
+              <span class="playlist-volume-label">Master</span>
+              <input
+                type="range"
+                id="fx-master-volume"
+                min="0"
+                max="100"
+                value="100"
+                title="Effects master volume"
+                oninput="setEffectsMasterVolume(this.value)"
+              />
+            </label>
+          </div>
+          <ul id="effects-playlist" class="playlist-list"></ul>
+        </section>
+      </aside>
+
+      <main class="library-column">
+        <h1 id="soundboard-title"></h1>
+        <div id="controls">
+          <form class="form-inline">
+            <div class="btn-group" role="group">
+              <a
+                class="btn btn-danger"
+                id="stop-all-sounds"
+                title="Stops all sounds [esc] or [backspace]"
+                onclick="stopPlaying()"
+              >
+                <i class="glyphicon glyphicon-stop"></i>
+              </a>
+              <a
+                class="btn btn-primary"
+                id="play-random-sound"
+                title="Add a random sound [shift]"
+                onclick="playRandom()"
+              >
+                <i class="glyphicon glyphicon-random"></i>
+              </a>
+              <a
+                class="btn btn-warning"
+                id="repeat"
+                title="Repeat next one-shot forever [control]"
+                onclick="toggleRepeat()"
+              >
+                <i class="glyphicon glyphicon-repeat"></i>
+              </a>
+              <a
+                class="btn btn-default"
+                id="previous-cat"
+                title="Switch to previous category [Arrow left]"
+                onclick="previousCat()"
+              >
+                <i class="glyphicon glyphicon-arrow-left"></i>
+              </a>
+              <a
+                class="btn btn-default"
+                title="Switch to next category [Arrow right]"
+                id="next-cat"
+                onclick="nextCat()"
+              >
+                <i class="glyphicon glyphicon-arrow-right"></i>
+              </a>
+            </div>
+          </form>
+          <div class="form-group" id="search-control">
+            <div class="input-group">
+              <div class="input-group-addon" title="Search">
+                <span class="glyphicon glyphicon-search"> </span>
+              </div>
+              <input
+                type="text"
+                title="Search can be focussed with [Alt]"
+                class="form-control"
+                id="search"
+                name="search"
+                placeholder="Search..."
               />
             </div>
           </div>
-          <div class="btn-group" role="group">
-            <a
-              class="btn btn-danger"
-              id="stop-all-sounds"
-              title="Stops all sounds [esc] or [backspace]"
-              onclick="stopPlaying()"
-            >
-              <i class="glyphicon glyphicon-stop"></i>
-            </a>
-            <a
-              class="btn btn-primary"
-              id="play-random-sound"
-              title="Play random sound [shift]"
-              onclick="playRandom()"
-            >
-              <i class="glyphicon glyphicon-random"></i>
-            </a>
-            <a
-              class="btn btn-warning"
-              id="repeat"
-              title="Repeat next sound forever [control]"
-              onclick="toggleRepeat()"
-            >
-              <i class="glyphicon glyphicon-repeat"></i>
-            </a>
-            <a
-              class="btn btn-default"
-              id="previous-cat"
-              title="Switch to previous category [Arrow left]"
-              onclick="previousCat()"
-            >
-              <i class="glyphicon glyphicon-arrow-left"></i>
-            </a>
-            <a
-              class="btn btn-default"
-              title="Switch to next category [Arrow right]"
-              id="next-cat"
-              onclick="nextCat()"
-            >
-              <i class="glyphicon glyphicon-arrow-right"></i>
-            </a>
-          </div>
-        </form>
-        <p></p>
-        <div class="form-group" id="search-control">
-          <div class="input-group">
-            <div class="input-group-addon" title="Search">
-              <span class="glyphicon glyphicon-search"> </span>
-            </div>
-            <input
-              type="text"
-              title="Search can be focussed with [Alt]"
-              class="form-control"
-              id="search"
-              name="search"
-              placeholder="Search..."
-            />
-          </div>
+        </div>
+
+        <div id="tabs">
+          <ul id="tabs-buttons" class="nav nav-tabs"></ul>
+          <div id="tabs-contents" class="tab-content clearfix"></div>
+        </div>
+        <div id="buttons" class="row"></div>
+      </main>
+    </div>
+
+    <div
+      id="add-sound-modal"
+      class="sound-modal"
+      aria-hidden="true"
+      onclick="onAddSoundModalBackdrop(event)"
+    >
+      <div class="sound-modal-dialog" role="dialog" aria-modal="true">
+        <h3 id="add-sound-modal-title">Add sound</h3>
+        <p class="sound-modal-copy">Add this sound to a playlist:</p>
+        <div class="sound-modal-actions">
+          <button
+            type="button"
+            class="btn btn-primary"
+            id="add-to-background"
+            onclick="addPendingToBackground()"
+          >
+            Background music
+          </button>
+          <button
+            type="button"
+            class="btn btn-info"
+            id="add-to-effects"
+            onclick="addPendingToEffects()"
+          >
+            Effects
+          </button>
+          <button
+            type="button"
+            class="btn btn-default"
+            id="add-sound-cancel"
+            onclick="closeAddSoundModal()"
+          >
+            Cancel
+          </button>
         </div>
       </div>
-
-      <p></p>
-      <div id="tabs" class="container">
-        <ul id="tabs-buttons" class="nav nav-tabs"></ul>
-        <p></p>
-        <div id="tabs-contents" class="tab-content clearfix"></div>
-      </div>
-      <div id="buttons" class="row"></div>
     </div>
   </body>
 </html>
