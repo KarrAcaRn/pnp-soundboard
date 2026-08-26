@@ -46,42 +46,88 @@ function BufferLoader(context, urlList) {
   this.loadCount = 0;
 }
 
-BufferLoader.prototype.loadBuffer = function(url, index, callback) {
+BufferLoader.prototype.loadBuffer = function(url, index, callback, errCallback) {
   // Load buffer asynchronously
   const loader = this;
   if (index >= 0 && loader.bufferList[index]) {
     callback(loader.bufferList[index]);
     return;
   }
+  const fail = error => {
+    if (errCallback) {
+      errCallback(error);
+    }
+  };
   const request = new XMLHttpRequest();
-  request.open("GET", url, true);
+  request.open("GET", encodeAudioUrl(url), true);
   request.responseType = "arraybuffer";
   request.onload = () => {
-    // Asynchronously decode the audio file data in request.response
-    loader.context.decodeAudioData(
+    const status = request.status;
+    if (status && status !== 200 && status !== 0) {
+      fail(new Error("HTTP " + status + " for " + url));
+      return;
+    }
+    if (!request.response) {
+      fail(new Error("Empty audio response for " + url));
+      return;
+    }
+    decodeAudioBuffer(
+      loader.context,
       request.response,
       buffer => {
         if (!buffer) {
-          console.error("error decoding file data: " + url);
+          fail(new Error("error decoding file data: " + url));
           return;
         }
         if (index >= 0) {
           loader.bufferList[index] = buffer;
         }
         callback(buffer);
-        return;
       },
       error => {
-        console.error("decodeAudioData error", error, url);
+        fail(error || new Error("decodeAudioData error " + url));
       }
     );
   };
   request.onerror = e => {
-    console.error("BufferLoader: XHR error", e, url);
+    fail(e || new Error("BufferLoader: XHR error " + url));
   };
 
   request.send();
 };
+
+function encodeAudioUrl(url) {
+  return String(url)
+    .split("/")
+    .map(encodeURIComponent)
+    .join("/");
+}
+
+function decodeAudioBuffer(audioContext, data, onSuccess, onError) {
+  let settled = false;
+  const succeed = buffer => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    onSuccess(buffer);
+  };
+  const fail = error => {
+    if (settled) {
+      return;
+    }
+    settled = true;
+    onError(error);
+  };
+  try {
+    const result = audioContext.decodeAudioData(data, succeed, fail);
+    if (result && typeof result.then === "function") {
+      result.then(succeed, fail);
+    }
+  } catch (error) {
+    fail(error);
+  }
+}
 // END bufferloader class
 
 // BEGIN custom code
@@ -102,10 +148,11 @@ function ensureAudio() {
     bufferLoader.context = context;
     bufferLoader.urlList = soundfiles;
   }
-  if (context.state === "suspended" && context.resume) {
-    context.resume();
-  }
   ensureMasterGains();
+  if (context.state === "suspended" && context.resume) {
+    return context.resume();
+  }
+  return Promise.resolve();
 }
 
 function ensureMasterGains() {
@@ -257,11 +304,10 @@ function usableCat(cat) {
 }
 
 function getBufferFromPath(path) {
-  return new Promise(resolve => {
-    ensureAudio();
-    const index = soundfiles.findIndex(f => f === path);
-    bufferLoader.loadBuffer(path, index, buffer => {
-      resolve(buffer);
+  return Promise.resolve(ensureAudio()).then(() => {
+    return new Promise((resolve, reject) => {
+      const index = soundfiles.findIndex(f => f === path);
+      bufferLoader.loadBuffer(path, index, resolve, reject);
     });
   });
 }
@@ -407,6 +453,9 @@ function renderBackgroundPlaylist() {
     if (item.id === backgroundLoadingId) {
       li.classList.add("is-loading");
     }
+    if (item.loadError) {
+      li.classList.add("is-error");
+    }
     const handle = document.createElement("span");
     handle.className = "playlist-item-handle glyphicon glyphicon-align-justify";
     handle.setAttribute("aria-hidden", "true");
@@ -447,6 +496,9 @@ function renderEffectsPlaylist() {
     const li = document.createElement("li");
     li.className = "playlist-item playlist-item-effect";
     li.dataset.id = item.id;
+    if (item.loadError) {
+      li.classList.add("is-error");
+    }
     const name = document.createElement("span");
     name.className = "playlist-item-name";
     name.textContent = item.name;
@@ -693,39 +745,51 @@ function playBackgroundIndex(index) {
   backgroundIndex = (index + backgroundPlaylist.length) % backgroundPlaylist.length;
   const item = backgroundPlaylist[backgroundIndex];
   const token = ++backgroundPlayToken;
+  item.loadError = false;
   backgroundLoadingId = item.id;
   backgroundPaused = false;
   stopBackgroundSource();
   renderBackgroundPlaylist();
-  ensureAudio();
-  return getBufferFromPath(item.path).then(buffer => {
-    if (token !== backgroundPlayToken) {
-      return;
-    }
-    if (!backgroundPlaylist.some(entry => entry.id === item.id)) {
-      return;
-    }
-    backgroundLoadingId = null;
-    const source = context.createBufferSource();
-    source.buffer = buffer;
-    source.loop = false;
-    const gainNode = context.createGain();
-    gainNode.gain.value = 1;
-    source.connect(gainNode);
-    gainNode.connect(backgroundMasterGain);
-    trackActiveNode(source, item.path);
-    trackActiveNode(gainNode, item.path);
-    source.onended = function() {
+  return Promise.resolve(ensureAudio())
+    .then(() => getBufferFromPath(item.path))
+    .then(buffer => Promise.resolve(ensureAudio()).then(() => buffer))
+    .then(buffer => {
       if (token !== backgroundPlayToken) {
         return;
       }
-      onBackgroundTrackEnded();
-    };
-    source.start(0);
-    backgroundSource = source;
-    backgroundItemGain = gainNode;
-    renderBackgroundPlaylist();
-  });
+      if (!backgroundPlaylist.some(entry => entry.id === item.id)) {
+        return;
+      }
+      backgroundLoadingId = null;
+      const source = context.createBufferSource();
+      source.buffer = buffer;
+      source.loop = false;
+      const gainNode = context.createGain();
+      gainNode.gain.value = 1;
+      source.connect(gainNode);
+      gainNode.connect(backgroundMasterGain);
+      trackActiveNode(source, item.path);
+      trackActiveNode(gainNode, item.path);
+      source.onended = function() {
+        if (token !== backgroundPlayToken) {
+          return;
+        }
+        onBackgroundTrackEnded();
+      };
+      source.start(0);
+      backgroundSource = source;
+      backgroundItemGain = gainNode;
+      renderBackgroundPlaylist();
+    })
+    .catch(error => {
+      console.error("Background track failed", item.path, error);
+      if (token !== backgroundPlayToken) {
+        return;
+      }
+      backgroundLoadingId = null;
+      item.loadError = true;
+      renderBackgroundPlaylist();
+    });
 }
 
 function onBackgroundTrackEnded() {
@@ -764,24 +828,33 @@ function removeBackgroundItem(id) {
 }
 
 function startEffect(item) {
-  ensureAudio();
-  return getBufferFromPath(item.path).then(buffer => {
-    if (!effectsPlaylist.some(entry => entry.id === item.id)) {
-      return;
-    }
-    stopEffectSource(item.id);
-    const source = context.createBufferSource();
-    source.buffer = buffer;
-    source.loop = true;
-    const gainNode = context.createGain();
-    gainNode.gain.value = gainFromPercent(item.volume);
-    source.connect(gainNode);
-    gainNode.connect(effectsMasterGain);
-    trackActiveNode(source, item.path);
-    trackActiveNode(gainNode, item.path);
-    source.start(0);
-    effectNodes[item.id] = { source: source, gain: gainNode, path: item.path };
-  });
+  item.loadError = false;
+  return Promise.resolve(ensureAudio())
+    .then(() => getBufferFromPath(item.path))
+    .then(buffer => Promise.resolve(ensureAudio()).then(() => buffer))
+    .then(buffer => {
+      if (!effectsPlaylist.some(entry => entry.id === item.id)) {
+        return;
+      }
+      stopEffectSource(item.id);
+      const source = context.createBufferSource();
+      source.buffer = buffer;
+      source.loop = true;
+      const gainNode = context.createGain();
+      gainNode.gain.value = gainFromPercent(item.volume);
+      source.connect(gainNode);
+      gainNode.connect(effectsMasterGain);
+      trackActiveNode(source, item.path);
+      trackActiveNode(gainNode, item.path);
+      source.start(0);
+      effectNodes[item.id] = { source: source, gain: gainNode, path: item.path };
+      renderEffectsPlaylist();
+    })
+    .catch(error => {
+      console.error("Effect failed", item.path, error);
+      item.loadError = true;
+      renderEffectsPlaylist();
+    });
 }
 
 function stopEffectSource(id) {

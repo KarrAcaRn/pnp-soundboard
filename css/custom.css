@@ -121,6 +121,12 @@
   font-weight: normal;
 }
 
+.playlist-item.is-error .playlist-item-name::after {
+  content: " (failed)";
+  color: #a94442;
+  font-weight: normal;
+}
+
 .playlist-item-name {
   flex: 1;
   min-width: 0;
