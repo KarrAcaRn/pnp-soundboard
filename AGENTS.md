@@ -44,7 +44,8 @@ npm run pretty              # Prettier 1.x over css/js/html/json
 ## Tests
 
 - Every behaviour change gets a test in `spec/board.spec.js`; run `npm run test:ci` before committing.
-- The CI workflow (`.github/workflows/nodejs.yml`) is outdated (Node 8–12, `actions/*@v1/v2`).
+- CI (`.github/workflows/nodejs.yml`) runs `npm run test:ci` on Node 22, 24 and 26 for every push and PR.
+  Keep the suite green on all three.
 
 ## Git
 
